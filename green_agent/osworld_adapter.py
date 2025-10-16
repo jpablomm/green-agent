@@ -28,11 +28,17 @@ def _fake_frames(hints: list[str]) -> Generator[Dict[str, Any], None, None]:
         yield {"frame_id": i, "png": _png_b64(img), "hint": hint, "done": i == steps}
 
 
-def run_osworld_like(task: Dict[str, Any], white_decide) -> Dict[str, Any]:
+def run_osworld_like(
+    task: Dict[str, Any], white_decide, artifacts_dir: str | None = None
+) -> Dict[str, Any]:
     """Fake OSWorld loop: emit frames, ask white agent for actions, mark success at the end."""
     t0 = time.time()
     steps = 0
     failure = None
+    frames_dir = None
+    if artifacts_dir:
+        frames_dir = os.path.join(artifacts_dir, "frames")
+        os.makedirs(frames_dir, exist_ok=True)
     for fr in _fake_frames(task.get("hints", [])):
         obs = {
             "frame_id": fr["frame_id"],
@@ -40,6 +46,16 @@ def run_osworld_like(task: Dict[str, Any], white_decide) -> Dict[str, Any]:
             "ui_hint": fr.get("hint"),
             "done": False,
         }
+        # Save frame artifact if requested
+        if frames_dir:
+            try:
+                with open(
+                    os.path.join(frames_dir, f"{fr['frame_id']:04d}.png"), "wb"
+                ) as fh:
+                    fh.write(base64.b64decode(fr["png"]))
+            except Exception:
+                # Artifacts are best-effort in MVP
+                pass
         try:
             _ = white_decide(obs)  # we ignore the action in fake mode
         except Exception as e:
@@ -65,9 +81,11 @@ def run_osworld_like(task: Dict[str, Any], white_decide) -> Dict[str, Any]:
 # - parse outputs to the same dict structure as above
 
 
-def run_osworld(task: Dict[str, Any], white_decide) -> Dict[str, Any]:
+def run_osworld(
+    task: Dict[str, Any], white_decide, artifacts_dir: str | None = None
+) -> Dict[str, Any]:
     if USE_FAKE:
-        return run_osworld_like(task, white_decide)
+        return run_osworld_like(task, white_decide, artifacts_dir)
     # Placeholder for future real adapter
     raise NotImplementedError(
         "Real OSWorld integration not wired in this MVP. Set USE_FAKE_OSWORLD=1."
