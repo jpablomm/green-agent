@@ -165,3 +165,63 @@ Use this as a foundation for research, demos, or coursework on agent reliability
 ---
 
 © 2025 AgentBeats Project — open educational prototype.
+
+---
+
+## 🛠️ Troubleshooting (macOS + uv)
+
+- Python 3.13 build errors (e.g., numpy 1.24 sdist)
+
+  - Use Python 3.11 via uv and upgrade build tools:
+    ```bash
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    uv python install 3.11
+    uv venv -p 3.11 .venv && source .venv/bin/activate
+    uv pip install -U pip setuptools wheel
+    ```
+
+- Torch wheels not found on macOS 15 arm64
+
+  - Allow pre-releases during resolution:
+    ```bash
+    uv pip install --prerelease=allow -r vendor/OSWorld/requirements.txt
+    ```
+  - Or install torch first, then the rest without deps:
+    ```bash
+    uv pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
+    uv pip install -r vendor/OSWorld/requirements.txt --no-deps
+    ```
+
+- borb 3.0.2 wheel extraction error
+
+  - Workaround: force sdist, then install remaining deps:
+    ```bash
+    uv cache clean
+    uv pip install --no-binary borb borb==3.0.2
+    uv pip install --prerelease=allow -r vendor/OSWorld/requirements.txt --no-deps
+    ```
+
+- Provider notes (macOS)
+  - macOS generally lacks KVM; prefer Docker or VMware for OSWorld. This repo targets Docker locally. See provider notes and quick start in OSWorld’s README: [xlang-ai/OSWorld](https://github.com/xlang-ai/OSWorld)
+  - Clean stale containers if a run is interrupted:
+    ```bash
+    docker stop $(docker ps -q) || true
+    docker rm $(docker ps -a -q) || true
+    ```
+
+---
+
+## 🔒 uv locking and constraints
+
+- Generate a lock for app deps (separate from vendor):
+  ```bash
+  uv pip compile -o requirements.lock requirements.txt
+  ```
+- Sync from the lock:
+  ```bash
+  uv pip sync requirements.lock
+  ```
+- On macOS ARM, apply the provided constraints file while installing OSWorld deps:
+  ```bash
+  uv pip install --prerelease=allow -r vendor/OSWorld/requirements.txt -c constraints-macos-arm.txt
+  ```

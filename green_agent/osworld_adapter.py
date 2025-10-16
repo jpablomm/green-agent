@@ -1,4 +1,4 @@
-import os, time, base64, io, uuid, json
+import os, time, base64, io, uuid, json, sys, subprocess, glob
 from typing import Dict, Any, Generator
 from PIL import Image, ImageDraw, ImageFont
 
@@ -7,6 +7,15 @@ MAX_STEPS = int(os.environ.get("MAX_STEPS", 120))
 MAX_TIME = int(os.environ.get("MAX_TIME_SEC", 600))
 W = int(os.environ.get("DESKTOP_W", 1920))
 H = int(os.environ.get("DESKTOP_H", 1080))
+OSWORLD_PROVIDER = os.environ.get("OSWORLD_PROVIDER", "docker")
+OSWORLD_HEADLESS = os.environ.get("OSWORLD_HEADLESS", "1") == "1"
+OSWORLD_OBS_TYPE = os.environ.get("OSWORLD_OBS_TYPE", "screenshot")
+OSWORLD_MAX_STEPS = int(
+    os.environ.get("OSWORLD_MAX_STEPS", os.environ.get("MAX_STEPS", 15))
+)
+OSWORLD_SLEEP_AFTER_EXEC = int(os.environ.get("OSWORLD_SLEEP_AFTER_EXECUTION", 3))
+OSWORLD_RESULT_SUBDIR = os.environ.get("OSWORLD_RESULT_SUBDIR", "osworld")
+OSWORLD_CLIENT_PASSWORD = os.environ.get("OSWORLD_CLIENT_PASSWORD", "password")
 
 
 # --- Fake runner simulates an OS desktop and task progression ---
@@ -81,12 +90,84 @@ def run_osworld_like(
 # - parse outputs to the same dict structure as above
 
 
+def _count_screenshots(result_dir: str) -> int:
+    try:
+        return len(glob.glob(os.path.join(result_dir, "**", "*.png"), recursive=True))
+    except Exception:
+        return 0
+
+
+def _parse_basic_result(result_dir: str, rc: int, t0: float) -> Dict[str, Any]:
+    steps = _count_screenshots(result_dir)
+    success = 1 if rc == 0 else 0
+    dt = time.time() - t0
+    return {
+        "success": success,
+        "steps": steps,
+        "time_sec": round(dt, 3),
+        "failure_reason": None if success else f"osworld_exit_code_{rc}",
+        "artifacts": {"result_dir": result_dir},
+    }
+
+
 def run_osworld(
     task: Dict[str, Any], white_decide, artifacts_dir: str | None = None
 ) -> Dict[str, Any]:
     if USE_FAKE:
         return run_osworld_like(task, white_decide, artifacts_dir)
-    # Placeholder for future real adapter
-    raise NotImplementedError(
-        "Real OSWorld integration not wired in this MVP. Set USE_FAKE_OSWORLD=1."
-    )
+
+    # Real OSWorld path: spawn vendor/OSWorld runner with Docker provider.
+    vendor_root = os.path.join("vendor", "OSWorld")
+    run_py = os.path.join(vendor_root, "run.py")
+    if not os.path.exists(run_py):
+        raise FileNotFoundError(
+            f"OSWorld runner not found at {run_py}. Add submodule and install deps."
+        )
+
+    # Prepare result directory under artifacts
+    base_artifacts = artifacts_dir or os.path.join("runs", str(uuid.uuid4()))
+    os.makedirs(base_artifacts, exist_ok=True)
+    result_dir = os.path.join(base_artifacts, OSWORLD_RESULT_SUBDIR)
+    os.makedirs(result_dir, exist_ok=True)
+
+    log_path = os.path.join(result_dir, "osworld.log")
+
+    cmd = [
+        sys.executable,
+        run_py,
+        "--provider_name",
+        OSWORLD_PROVIDER,
+        "--observation_type",
+        OSWORLD_OBS_TYPE,
+        "--max_steps",
+        str(OSWORLD_MAX_STEPS),
+        "--sleep_after_execution",
+        str(OSWORLD_SLEEP_AFTER_EXEC),
+        "--result_dir",
+        result_dir,
+        "--client_password",
+        OSWORLD_CLIENT_PASSWORD,
+    ]
+    if OSWORLD_HEADLESS:
+        cmd.append("--headless")
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = f"{os.getcwd()}:{env.get('PYTHONPATH','')}"
+
+    t0 = time.time()
+    with open(log_path, "ab", buffering=0) as log_f:
+        log_f.write(
+            ("\n==== OSWorld start ====: " + time.ctime() + "\n").encode("utf-8")
+        )
+        log_f.write(("CMD: " + " ".join(cmd) + "\n").encode("utf-8"))
+        proc = subprocess.Popen(
+            cmd,
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
+            env=env,
+            cwd=os.getcwd(),
+        )
+        rc = proc.wait()
+
+    # NOTE: white_decide is not wired into OSWorld run.py yet; bridge to be added later.
+    return _parse_basic_result(result_dir, rc, t0)
