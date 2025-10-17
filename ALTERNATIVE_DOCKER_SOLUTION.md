@@ -4,7 +4,7 @@
 The `happysixd/osworld-docker` image has UEFI boot issues causing the Ubuntu VM to hang at bootloader stage.
 
 ## Solution
-Replace it with a proven, well-maintained QEMU Docker image: **`qemus/qemu`**
+Replace it with a proven, well-maintained QEMU Docker image: **`qemux/qemu`**
 
 ## Why This Works
 
@@ -30,7 +30,7 @@ self.container = self.client.containers.run(
 
 # To:
 self.container = self.client.containers.run(
-    "qemus/qemu",  # Well-maintained QEMU image
+    "qemux/qemu",  # Well-maintained QEMU image
     environment={
         **self.environment,
         # Add QEMU-specific vars:
@@ -45,7 +45,7 @@ self.container = self.client.containers.run(
 
 ### Option 2: Test Manually First (Recommended)
 
-Before modifying OSWorld, test if `qemus/qemu` works:
+Before modifying OSWorld, test if `qemux/qemu` works:
 
 ```bash
 # On GCP VM
@@ -60,7 +60,7 @@ docker run -d \
   -p 8006:8006 \
   -p 9222:9222 \
   -p 8080:8080 \
-  qemus/qemu
+  qemux/qemu
 
 # Check if it boots
 docker logs -f osworld-test
@@ -71,10 +71,10 @@ curl http://localhost:5000/screenshot
 
 ### Option 3: Build Custom Minimal Image (If needed)
 
-If `qemus/qemu` needs tweaks, create a simple Dockerfile:
+If `qemux/qemu` needs tweaks, create a simple Dockerfile:
 
 ```dockerfile
-FROM qemus/qemu:latest
+FROM qemux/qemu:latest
 
 # Install any additional tools if needed
 RUN apt-get update && apt-get install -y \
@@ -90,7 +90,7 @@ ENTRYPOINT ["/start-vm.sh"]
 
 ## Advantages
 
-✅ **Well-maintained**: `qemus/qemu` is actively developed
+✅ **Well-maintained**: `qemux/qemu` is actively developed
 ✅ **UEFI support**: Built-in OVMF firmware
 ✅ **KVM optimized**: Designed for nested virtualization
 ✅ **Documentation**: Extensive examples and docs
@@ -117,19 +117,19 @@ The Ubuntu.qcow2 needs to automatically start the Flask server when it boots. Th
 
 ## Next Steps
 
-1. **Test `qemus/qemu` manually** (Option 2 above)
+1. **Test `qemux/qemu` manually** (Option 2 above)
 2. If it boots better than `happysixd/osworld-docker`, proceed with Option 1
 3. Document findings and update OSWorld provider
 
 ## Alternative Images to Consider
 
-If `qemus/qemu` doesn't work:
+If `qemux/qemu` doesn't work:
 - `tianon/qemu` - Docker official library
 - `docker/setup-qemu-action` - GitHub Actions QEMU
 - Build custom from `ubuntu:22.04` + QEMU + OVMF
 
 ## References
 
-- qemus/qemu: https://github.com/qemus/qemu
+- qemux/qemu: https://github.com/qemus/qemu
 - OSWorld Docker provider: `vendor/OSWorld/desktop_env/providers/docker/provider.py`
 - Ubuntu OVMF guide: https://wiki.ubuntu.com/UEFI/OVMF

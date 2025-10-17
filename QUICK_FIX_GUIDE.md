@@ -2,7 +2,7 @@
 
 ## TL;DR: The Easiest Fix
 
-Instead of debugging `happysixd/osworld-docker`, use a proven QEMU Docker image.
+Instead of debugging `happysixd/osworld-docker`, use a proven QEMU Docker image: `qemux/qemu`
 
 ## Step 1: Test on GCP (5 minutes)
 
@@ -37,7 +37,7 @@ self.container = self.client.containers.run(
 **Change to**:
 ```python
 self.container = self.client.containers.run(
-    "qemus/qemu:latest",  # <-- NEW, PROVEN IMAGE
+    "qemux/qemu:latest",  # <-- NEW, PROVEN IMAGE
 ```
 
 **Add volume mapping** on line ~121:
@@ -64,7 +64,7 @@ uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
 
 ## Why This Works
 
-**`qemus/qemu`**:
+**`qemux/qemu`**:
 - ✅ Actively maintained (2024 updates)
 - ✅ UEFI/OVMF properly configured
 - ✅ Designed for Docker + KVM

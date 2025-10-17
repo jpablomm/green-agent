@@ -5,7 +5,7 @@
 set -e
 
 echo "=================================="
-echo "Testing qemus/qemu as OSWorld Docker alternative"
+echo "Testing qemux/qemu as OSWorld Docker alternative"
 echo "=================================="
 
 # Stop any existing OSWorld containers
@@ -14,8 +14,8 @@ docker stop osworld-test 2>/dev/null || true
 docker rm osworld-test 2>/dev/null || true
 
 # Pull the alternative image
-echo "Pulling qemus/qemu image..."
-docker pull qemus/qemu:latest
+echo "Pulling qemux/qemu image..."
+docker pull qemux/qemu:latest
 
 # Path to Ubuntu QCOW2
 VM_PATH="$HOME/green-agent/docker_vm_data/Ubuntu.qcow2"
@@ -40,7 +40,7 @@ docker run -d \
   -p 8006:8006 \
   -p 9222:9222 \
   -p 8080:8080 \
-  qemus/qemu:latest
+  qemux/qemu:latest
 
 echo ""
 echo "Container started! Container ID: $(docker ps -q -f name=osworld-test)"
@@ -69,7 +69,7 @@ for i in {1..5}; do
         echo "✅ SUCCESS! Screenshot endpoint is responding!"
         echo ""
         echo "This alternative Docker image WORKS!"
-        echo "You can now modify OSWorld provider.py to use 'qemus/qemu' instead of 'happysixd/osworld-docker'"
+        echo "You can now modify OSWorld provider.py to use 'qemux/qemu' instead of 'happysixd/osworld-docker'"
         exit 0
     fi
     echo "Not ready yet, waiting 30 seconds..."
