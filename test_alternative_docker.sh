@@ -32,10 +32,12 @@ echo "Starting QEMU container..."
 docker run -d \
   --name osworld-test \
   --device=/dev/kvm \
+  --cap-add NET_ADMIN \
   -e RAM_SIZE=4G \
   -e CPU_CORES=4 \
   -e DISK_SIZE=32G \
-  -v "$VM_PATH:/storage/boot.qcow2:ro" \
+  -e BOOT=/storage/boot.qcow2 \
+  -v "$VM_PATH:/storage/boot.qcow2" \
   -p 5000:5000 \
   -p 8006:8006 \
   -p 9222:9222 \
