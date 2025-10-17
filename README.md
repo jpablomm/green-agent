@@ -6,12 +6,12 @@ A complete, production-ready integration between **Green Agent orchestration** a
 
 ## 🎯 Project Status
 
-**✅ PRODUCTION READY** — Deployed and tested on GCP
+**✅ DEPLOYED ON GCP** — Fake mode validated, real mode testing in progress
 
 - ✅ **Full OSWorld Integration**: Complete library-mode integration with WhiteAgentBridge
 - ✅ **GCP Deployment**: Running on `n1-standard-4` VM with Docker support
-- ✅ **Fake Mode**: Tested and working (10 steps, 1.4s, 100% success)
-- ✅ **Real OSWorld Mode**: Ready for testing with actual Ubuntu desktop environments
+- ✅ **Fake Mode**: Tested and working on GCP (10 steps, 1.4s, 100% success)
+- ⚠️ **Real OSWorld Mode**: Integration complete, Docker permission troubleshooting in progress
 - ✅ **Comprehensive Documentation**: 1,500+ lines of guides and status reports
 
 **Test Results** (Fake Mode on GCP):
@@ -23,6 +23,11 @@ A complete, production-ready integration between **Green Agent orchestration** a
   "failure_reason": null
 }
 ```
+
+**Real Mode Status**:
+- ✅ OSWorld evaluation data downloaded (11.4GB, one-time)
+- ⚠️ Docker permission configuration in progress
+- See troubleshooting section below for details
 
 ---
 
@@ -75,10 +80,22 @@ source ~/.local/bin/env
 uv pip install -r requirements.txt
 cd vendor/OSWorld && uv pip install -r requirements.txt && cd ../..
 
-# 4. Start Green Agent
+# 4. Configure Docker permissions (for real mode)
+sudo usermod -aG docker $USER
+newgrp docker
+
+# 5. Start Green Agent
+# Fake mode (no Docker needed):
 export USE_FAKE_OSWORLD=1
 uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
+
+# OR Real mode (with Docker):
+export USE_FAKE_OSWORLD=0
+export OSWORLD_MAX_STEPS=15
+uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
 ```
+
+**Important for real mode**: Ensure the server is restarted AFTER Docker group membership is applied.
 
 See **[GCP_DEPLOYMENT.md](GCP_DEPLOYMENT.md)** for detailed instructions.
 
@@ -156,12 +173,16 @@ curl http://localhost:8080/assessments/<ID>/results
 
 ## 🔧 Real OSWorld Mode
 
-The integration is complete and ready to use:
+The integration is complete. Docker permission setup required on first run:
 
 ### Enable Real Mode
 
 ```bash
-# Stop fake mode server, then:
+# 1. Ensure Docker permissions are configured (see Troubleshooting)
+sudo usermod -aG docker $USER
+newgrp docker  # Or logout/login
+
+# 2. Restart server with real mode enabled
 export USE_FAKE_OSWORLD=0
 export OSWORLD_MAX_STEPS=15
 uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
@@ -170,17 +191,21 @@ uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
 ### Requirements
 
 - **Docker**: For Ubuntu desktop containers
-- **11.4GB disk space**: OSWorld evaluation data
+- **11.4GB disk space**: OSWorld evaluation data (downloads on first run, ~2-3 minutes)
 - **4+ GB RAM**: For running containers
 - **Linux recommended**: macOS has psutil permission issues (fixed with graceful fallback)
+- **Docker group membership**: User must be in `docker` group
 
-### What Happens
+### What Happens (First Run)
 
-1. OSWorld creates a Docker container with Ubuntu desktop
-2. WhiteAgentBridge forwards observations to your White Agent via HTTP
-3. White Agent returns actions (click, type, hotkey, etc.)
-4. Actions are executed in the real desktop environment
-5. Screenshots and metrics are captured
+1. **Initial download**: OSWorld downloads 11.4GB evaluation data (~2-3 minutes)
+2. **Container creation**: OSWorld creates a Docker container with Ubuntu desktop
+3. **WhiteAgentBridge**: Forwards observations to your White Agent via HTTP
+4. **Action execution**: White Agent returns actions (click, type, hotkey, etc.)
+5. **Desktop interaction**: Actions are executed in the real desktop environment
+6. **Artifact capture**: Screenshots and metrics are captured
+
+**Note**: The first real mode test will take longer due to the one-time data download. Subsequent runs use cached data.
 
 See **[OSWORLD_INTEGRATION.md](OSWORLD_INTEGRATION.md)** for details.
 
@@ -249,6 +274,9 @@ Artifacts include:
 ## 🧭 Next Steps
 
 ### Immediate
+- [x] Deploy to GCP (completed)
+- [x] Test fake OSWorld mode on GCP (completed, working)
+- [ ] Complete Docker permission setup for real mode
 - [ ] Test real OSWorld mode on GCP with Docker
 - [ ] Deploy actual White Agent implementation
 - [ ] Run end-to-end assessment with real actions
@@ -284,6 +312,40 @@ From the initial audit, these issues were identified but **not yet fixed** (defe
 
 ## 🛠️ Troubleshooting
 
+### Real OSWorld Mode Issues
+
+**Docker permission denied (Linux/GCP)**:
+
+If you see `DockerException: Error while fetching server API version: ('Connection aborted.', PermissionError(13, 'Permission denied'))`:
+
+```bash
+# 1. Add user to docker group
+sudo usermod -aG docker $USER
+
+# 2. Apply group membership (choose one):
+newgrp docker  # Option A: Apply in current shell
+# OR
+exit && ssh back in  # Option B: Logout and login
+
+# 3. Verify Docker access
+docker ps  # Should work without sudo
+
+# 4. IMPORTANT: Restart the uvicorn server
+# Kill existing server (Ctrl+C or pkill)
+pkill -f uvicorn
+# Restart with real mode
+export USE_FAKE_OSWORLD=0
+export OSWORLD_MAX_STEPS=15
+uvicorn green_agent.app:app --host 0.0.0.0 --port 8080
+```
+
+**Key point**: The uvicorn process must be restarted AFTER the Docker group membership is applied. Simply running `newgrp docker` in a different terminal won't affect an already-running server.
+
+**First run takes long**:
+- OSWorld downloads 11.4GB evaluation data on first real mode run (~2-3 minutes)
+- Progress bar will show download status
+- Subsequent runs use cached data and start immediately
+
 ### macOS Issues
 
 **psutil AccessDenied**:
@@ -301,12 +363,6 @@ From the initial audit, these issues were identified but **not yet fixed** (defe
 sudo apt-get install python3.11-dev build-essential
 ```
 
-**Docker permission denied**:
-```bash
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
 ### General
 
 **Port conflicts**:
@@ -322,6 +378,11 @@ kill -9 $(lsof -t -i:8080)
 docker ps -a  # List all containers
 docker rm $(docker ps -a -q)  # Remove all
 ```
+
+**Server unresponsive during first run**:
+- Normal during 11.4GB data download
+- Wait for download to complete (~2-3 minutes)
+- Server will become responsive after download
 
 See **[OSWORLD_INTEGRATION.md](OSWORLD_INTEGRATION.md#troubleshooting)** for more solutions.
 

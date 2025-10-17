@@ -93,3 +93,11 @@ def fetch_run(assessment_id: str) -> Optional[Dict[str, Any]]:
             "SELECT * FROM runs WHERE assessment_id = ?", (assessment_id,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def list_runs(limit: int = 50) -> list[Dict[str, Any]]:
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [dict(row) for row in rows]
