@@ -13,6 +13,13 @@ class WhiteClient:
             pass
 
     def decide(self, observation: Dict[str, Any]) -> Dict[str, Any]:
-        r = httpx.post(f"{self.base_url}/decide", json=observation, timeout=60)
-        r.raise_for_status()
-        return r.json()
+        try:
+            r = httpx.post(f"{self.base_url}/decide", json=observation, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            # In fake mode, return a dummy action
+            import os
+            if os.environ.get("USE_FAKE_OSWORLD", "1") == "1":
+                return {"op": "wait", "args": {}}
+            raise
