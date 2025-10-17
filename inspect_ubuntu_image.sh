@@ -5,12 +5,24 @@ echo "=================================="
 echo "Inspecting Ubuntu.qcow2 image"
 echo "=================================="
 
-VM_PATH="$HOME/green-agent/docker_vm_data/Ubuntu.qcow2"
+# Try to find the Ubuntu.qcow2 in common locations
+VM_PATH="/home/pablo/green-agent/docker_vm_data/Ubuntu.qcow2"
 
 if [ ! -f "$VM_PATH" ]; then
-    echo "ERROR: Ubuntu.qcow2 not found at $VM_PATH"
+    VM_PATH="$HOME/green-agent/docker_vm_data/Ubuntu.qcow2"
+fi
+
+if [ ! -f "$VM_PATH" ]; then
+    echo "ERROR: Ubuntu.qcow2 not found!"
+    echo "Tried: /home/pablo/green-agent/docker_vm_data/Ubuntu.qcow2"
+    echo "Tried: $HOME/green-agent/docker_vm_data/Ubuntu.qcow2"
+    echo ""
+    echo "Please specify path manually:"
+    echo "Usage: sudo $0 /path/to/Ubuntu.qcow2"
     exit 1
 fi
+
+echo "Using VM image: $VM_PATH"
 
 echo ""
 echo "1. Image info:"
