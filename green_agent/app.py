@@ -52,7 +52,12 @@ def start_assessment(req: StartAssessmentRequest) -> Dict[str, Any]:
         return white.decide(obs)
 
     try:
-        result = run_osworld(task, white_decide, artifacts_dir)
+        result = run_osworld(
+            task,
+            white_decide,
+            artifacts_dir,
+            white_agent_url=req.white_agent_url
+        )
     except Exception as e:
         failure = f"adapter_error: {e}"
         result = {

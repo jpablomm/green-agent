@@ -81,10 +81,16 @@ docker-compose.override.yml
 
 # Databases
 *.sqlite3
+*.db
 runs.db
 
 # Project outputs
 runs/
+
+# OSWorld VM images (too large for git - 11GB+)
+*.qcow2
+*.qcow2.zip
+docker_vm_data/
 
 # Cursor / tool artifacts
 .cursor/

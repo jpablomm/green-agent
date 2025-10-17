@@ -15,7 +15,6 @@ OSWORLD_MAX_STEPS = int(
 )
 OSWORLD_SLEEP_AFTER_EXEC = int(os.environ.get("OSWORLD_SLEEP_AFTER_EXECUTION", 3))
 OSWORLD_RESULT_SUBDIR = os.environ.get("OSWORLD_RESULT_SUBDIR", "osworld")
-OSWORLD_CLIENT_PASSWORD = os.environ.get("OSWORLD_CLIENT_PASSWORD", "password")
 
 
 # --- Fake runner simulates an OS desktop and task progression ---
@@ -111,63 +110,158 @@ def _parse_basic_result(result_dir: str, rc: int, t0: float) -> Dict[str, Any]:
 
 
 def run_osworld(
-    task: Dict[str, Any], white_decide, artifacts_dir: str | None = None
+    task: Dict[str, Any],
+    white_decide,
+    artifacts_dir: str | None = None,
+    white_agent_url: str | None = None
 ) -> Dict[str, Any]:
+    """
+    Run OSWorld assessment with White Agent.
+
+    Args:
+        task: Task dictionary (Green Agent format)
+        white_decide: Callback function (unused in real mode, kept for compatibility)
+        artifacts_dir: Directory to save artifacts
+        white_agent_url: URL of White Agent HTTP API (required for real mode)
+
+    Returns:
+        Dictionary with assessment results
+    """
     if USE_FAKE:
         return run_osworld_like(task, white_decide, artifacts_dir)
 
-    # Real OSWorld path: spawn vendor/OSWorld runner with Docker provider.
-    vendor_root = os.path.join("vendor", "OSWorld")
-    run_py = os.path.join(vendor_root, "run.py")
-    if not os.path.exists(run_py):
-        raise FileNotFoundError(
-            f"OSWorld runner not found at {run_py}. Add submodule and install deps."
-        )
+    # Real OSWorld path: use OSWorld as a library
+    # Use absolute path relative to this file's location
+    green_agent_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(green_agent_dir)
+    vendor_root = os.path.join(project_root, "vendor", "OSWorld")
 
-    # Prepare result directory under artifacts
+    # Add vendor to path for imports
+    if vendor_root not in sys.path:
+        sys.path.insert(0, vendor_root)
+
+    # Import OSWorld modules (with error handling)
+    try:
+        from desktop_env.desktop_env import DesktopEnv
+        import lib_run_single
+        from mm_agents.white_agent_bridge import WhiteAgentBridge
+        from green_agent.task_converter import convert_to_osworld_format, extract_max_steps
+    except ImportError as e:
+        return {
+            "success": 0,
+            "steps": 0,
+            "time_sec": 0.0,
+            "failure_reason": f"OSWorld dependencies not installed: {e}. "
+                            "Run: pip install -r vendor/OSWorld/requirements.txt",
+            "artifacts": {}
+        }
+
+    if not white_agent_url:
+        return {
+            "success": 0,
+            "steps": 0,
+            "time_sec": 0.0,
+            "failure_reason": "white_agent_url is required for real OSWorld mode",
+            "artifacts": {}
+        }
+
+    # Prepare result directory
     base_artifacts = artifacts_dir or os.path.join("runs", str(uuid.uuid4()))
     os.makedirs(base_artifacts, exist_ok=True)
     result_dir = os.path.join(base_artifacts, OSWORLD_RESULT_SUBDIR)
     os.makedirs(result_dir, exist_ok=True)
 
     log_path = os.path.join(result_dir, "osworld.log")
-
-    cmd = [
-        sys.executable,
-        run_py,
-        "--provider_name",
-        OSWORLD_PROVIDER,
-        "--observation_type",
-        OSWORLD_OBS_TYPE,
-        "--max_steps",
-        str(OSWORLD_MAX_STEPS),
-        "--sleep_after_execution",
-        str(OSWORLD_SLEEP_AFTER_EXEC),
-        "--result_dir",
-        result_dir,
-        "--client_password",
-        OSWORLD_CLIENT_PASSWORD,
-    ]
-    if OSWORLD_HEADLESS:
-        cmd.append("--headless")
-
-    env = os.environ.copy()
-    env["PYTHONPATH"] = f"{os.getcwd()}:{env.get('PYTHONPATH','')}"
-
     t0 = time.time()
-    with open(log_path, "ab", buffering=0) as log_f:
-        log_f.write(
-            ("\n==== OSWorld start ====: " + time.ctime() + "\n").encode("utf-8")
-        )
-        log_f.write(("CMD: " + " ".join(cmd) + "\n").encode("utf-8"))
-        proc = subprocess.Popen(
-            cmd,
-            stdout=log_f,
-            stderr=subprocess.STDOUT,
-            env=env,
-            cwd=os.getcwd(),
-        )
-        rc = proc.wait()
 
-    # NOTE: white_decide is not wired into OSWorld run.py yet; bridge to be added later.
-    return _parse_basic_result(result_dir, rc, t0)
+    try:
+        # Convert task format
+        osworld_task = convert_to_osworld_format(task)
+        max_steps = extract_max_steps(task, OSWORLD_MAX_STEPS)
+
+        # Create White Agent bridge
+        agent = WhiteAgentBridge(
+            white_agent_url=white_agent_url,
+            action_space="pyautogui",
+            platform="ubuntu"
+        )
+
+        # Create OSWorld environment
+        env = DesktopEnv(
+            provider_name=OSWORLD_PROVIDER,
+            path_to_vm=None,
+            action_space="pyautogui",
+            screen_size=(W, H),
+            headless=OSWORLD_HEADLESS,
+            os_type="Ubuntu",
+            require_a11y_tree=(OSWORLD_OBS_TYPE in ["a11y_tree", "screenshot_a11y_tree"])
+        )
+
+        # Create args namespace (OSWorld expects this)
+        class Args:
+            sleep_after_execution = OSWORLD_SLEEP_AFTER_EXEC
+
+        args = Args()
+
+        # Run single assessment
+        scores = []
+
+        # Log to file
+        with open(log_path, "w") as log_f:
+            log_f.write(f"==== OSWorld start ====: {time.ctime()}\n")
+            log_f.write(f"Task: {osworld_task['id']}\n")
+            log_f.write(f"Instruction: {osworld_task['instruction']}\n")
+            log_f.write(f"White Agent URL: {white_agent_url}\n")
+            log_f.write(f"Max steps: {max_steps}\n")
+            log_f.write(f"Provider: {OSWORLD_PROVIDER}\n\n")
+
+        lib_run_single.run_single_example(
+            agent=agent,
+            env=env,
+            example=osworld_task,
+            max_steps=max_steps,
+            instruction=osworld_task["instruction"],
+            args=args,
+            example_result_dir=result_dir,
+            scores=scores
+        )
+
+        # Clean up environment
+        env.close()
+
+        # Parse results
+        dt = time.time() - t0
+        steps = _count_screenshots(result_dir)
+        success = int(scores[0]) if scores else 0
+
+        return {
+            "success": success,
+            "steps": steps,
+            "time_sec": round(dt, 3),
+            "failure_reason": None if success else "task_failed",
+            "artifacts": {"result_dir": result_dir}
+        }
+
+    except Exception as e:
+        dt = time.time() - t0
+        error_msg = f"OSWorld execution error: {type(e).__name__}: {str(e)}"
+
+        # Get full traceback
+        import traceback
+        full_traceback = traceback.format_exc()
+
+        # Log error with full traceback
+        try:
+            with open(log_path, "a") as log_f:
+                log_f.write(f"\n==== ERROR ====\n{error_msg}\n\n")
+                log_f.write(f"Full traceback:\n{full_traceback}\n")
+        except Exception:
+            pass
+
+        return {
+            "success": 0,
+            "steps": _count_screenshots(result_dir),
+            "time_sec": round(dt, 3),
+            "failure_reason": error_msg,
+            "artifacts": {"result_dir": result_dir}
+        }
