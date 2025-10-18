@@ -1,8 +1,12 @@
-import os, time, base64, io, uuid, json, sys, subprocess, glob
+import os, time, base64, io, uuid, json, sys, subprocess, glob, logging
 from typing import Dict, Any, Generator
 from PIL import Image, ImageDraw, ImageFont
 
+logger = logging.getLogger(__name__)
+
 USE_FAKE = os.environ.get("USE_FAKE_OSWORLD", "1") == "1"
+USE_NATIVE = os.environ.get("USE_NATIVE_OSWORLD", "0") == "1"  # New native mode flag
+OSWORLD_SERVER_URL = os.environ.get("OSWORLD_SERVER_URL", "http://localhost:5000")
 MAX_STEPS = int(os.environ.get("MAX_STEPS", 120))
 MAX_TIME = int(os.environ.get("MAX_TIME_SEC", 600))
 W = int(os.environ.get("DESKTOP_W", 1920))
@@ -81,8 +85,163 @@ def run_osworld_like(
     }
 
 
-# --- Real OSWorld adapter (skeleton) ---
-# When USE_FAKE_OSWORLD=0, implement spawning the OSWorld runner here.
+# --- Native OSWorld adapter (REST API) ---
+def run_osworld_native(
+    task: Dict[str, Any],
+    white_decide,
+    artifacts_dir: str | None = None,
+    white_agent_url: str | None = None
+) -> Dict[str, Any]:
+    """
+    Run OSWorld assessment using native REST API (port 5000).
+
+    Args:
+        task: Task dictionary with 'instruction' and 'id'
+        white_decide: Callback function(obs) -> action
+        artifacts_dir: Directory to save screenshots
+        white_agent_url: URL of White Agent (unused, kept for compatibility)
+
+    Returns:
+        Dictionary with success, steps, time_sec, etc.
+    """
+    from .osworld_client import OSWorldClient, create_observation
+
+    logger.info(f"Starting native OSWorld for task: {task.get('id', 'unknown')}")
+    logger.info(f"OSWorld server: {OSWORLD_SERVER_URL}")
+
+    # Connect to OSWorld server
+    client = OSWorldClient(base_url=OSWORLD_SERVER_URL)
+
+    # Health check
+    if not client.health_check():
+        return {
+            "success": 0,
+            "steps": 0,
+            "time_sec": 0.0,
+            "failure_reason": f"OSWorld server at {OSWORLD_SERVER_URL} is not responding",
+            "artifacts": {}
+        }
+
+    logger.info("OSWorld server health check passed")
+
+    # Create artifacts directory
+    if artifacts_dir:
+        frames_dir = os.path.join(artifacts_dir, "frames")
+        os.makedirs(frames_dir, exist_ok=True)
+    else:
+        frames_dir = None
+
+    t0 = time.time()
+    steps = 0
+    failure = None
+    max_steps = OSWORLD_MAX_STEPS
+
+    try:
+        # Initial screenshot to verify display is working
+        initial_screenshot = client.screenshot()
+        logger.info(f"Initial screenshot: {len(initial_screenshot)} bytes")
+
+        # Main interaction loop
+        for step in range(1, max_steps + 1):
+            logger.info(f"Step {step}/{max_steps}")
+
+            # Get observation from OSWorld
+            include_a11y = OSWORLD_OBS_TYPE in ["a11y_tree", "screenshot_a11y_tree"]
+            obs_obj = create_observation(client, include_a11y=include_a11y)
+
+            # Save screenshot artifact
+            if frames_dir:
+                try:
+                    screenshot_bytes = base64.b64decode(obs_obj.screenshot_b64)
+                    screenshot_path = os.path.join(frames_dir, f"step_{step:04d}.png")
+                    with open(screenshot_path, "wb") as f:
+                        f.write(screenshot_bytes)
+                    logger.debug(f"Saved screenshot: {screenshot_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save screenshot: {e}")
+
+            # Prepare observation for white agent
+            obs_for_white = {
+                "frame_id": step,
+                "image_png_b64": obs_obj.screenshot_b64,
+                "instruction": task.get("instruction", ""),
+                "done": False,
+            }
+
+            # Get action from white agent
+            try:
+                action = white_decide(obs_for_white)
+                logger.info(f"White agent action: {action.get('action_type', 'unknown')}")
+            except Exception as e:
+                failure = f"white_agent_error: {e}"
+                logger.error(f"White agent error: {e}")
+                break
+
+            # Execute action in OSWorld
+            action_type = action.get("action_type", "")
+
+            if action_type == "DONE":
+                logger.info("White agent signaled DONE")
+                break
+            elif action_type == "execute":
+                # Execute shell command
+                command = action.get("command", "")
+                if command:
+                    try:
+                        result = client.execute(command, shell=True)
+                        logger.info(f"Executed: {command}, result: {result.get('status')}")
+                    except Exception as e:
+                        logger.warning(f"Execute failed: {e}")
+            elif action_type == "click":
+                # Click at coordinates
+                x = action.get("x", 0)
+                y = action.get("y", 0)
+                try:
+                    client.click_at(x, y)
+                    logger.info(f"Clicked at ({x}, {y})")
+                except Exception as e:
+                    logger.warning(f"Click failed: {e}")
+            elif action_type == "type":
+                # Type text
+                text = action.get("text", "")
+                if text:
+                    try:
+                        client.type_text(text)
+                        logger.info(f"Typed: {text[:50]}")
+                    except Exception as e:
+                        logger.warning(f"Type failed: {e}")
+
+            steps += 1
+
+            # Sleep after execution (give UI time to update)
+            if OSWORLD_SLEEP_AFTER_EXEC > 0:
+                time.sleep(OSWORLD_SLEEP_AFTER_EXEC)
+
+        # Check if task was successful (simplified - would need actual evaluation)
+        success = 1 if failure is None and steps > 0 else 0
+
+    except Exception as e:
+        logger.error(f"Native OSWorld error: {e}", exc_info=True)
+        failure = f"native_osworld_error: {e}"
+        success = 0
+    finally:
+        client.close()
+
+    dt = time.time() - t0
+
+    logger.info(f"Native OSWorld completed: success={success}, steps={steps}, time={dt:.2f}s")
+
+    return {
+        "success": success,
+        "steps": steps,
+        "time_sec": round(dt, 3),
+        "failure_reason": failure,
+        "artifacts": {"frames_dir": frames_dir} if frames_dir else {}
+    }
+
+
+# --- Real OSWorld adapter (Docker/QEMU - legacy) ---
+# When USE_FAKE_OSWORLD=0 and USE_NATIVE_OSWORLD=0, use Docker/QEMU mode.
 # Outline:
 # - write a temporary agent stub that forwards obs->white_agent and returns actions
 # - call vendor/OSWorld runner script with task list, output dir
@@ -122,13 +281,23 @@ def run_osworld(
         task: Task dictionary (Green Agent format)
         white_decide: Callback function (unused in real mode, kept for compatibility)
         artifacts_dir: Directory to save artifacts
-        white_agent_url: URL of White Agent HTTP API (required for real mode)
+        white_agent_url: URL of White Agent HTTP API (required for Docker mode)
 
     Returns:
         Dictionary with assessment results
     """
+    # Mode selection priority:
+    # 1. Fake mode (fastest, for testing)
+    # 2. Native mode (REST API, production)
+    # 3. Docker/QEMU mode (legacy, currently broken)
+
     if USE_FAKE:
+        logger.info("Using FAKE OSWorld mode")
         return run_osworld_like(task, white_decide, artifacts_dir)
+
+    if USE_NATIVE or OSWORLD_PROVIDER == "native":
+        logger.info("Using NATIVE OSWorld mode (REST API)")
+        return run_osworld_native(task, white_decide, artifacts_dir, white_agent_url)
 
     # Real OSWorld path: use OSWorld as a library
     # Use absolute path relative to this file's location

@@ -20,11 +20,24 @@ app = FastAPI(title="Green Agent (OSWorld MVP)")
 @app.get("/health")
 def health() -> Dict[str, Any]:
     """Health check endpoint for monitoring and load balancers."""
+    use_fake = os.environ.get("USE_FAKE_OSWORLD", "1") == "1"
+    use_native = os.environ.get("USE_NATIVE_OSWORLD", "0") == "1"
+    osworld_server_url = os.environ.get("OSWORLD_SERVER_URL", "http://localhost:5000")
+
+    # Determine mode
+    if use_fake:
+        mode = "fake"
+    elif use_native:
+        mode = "native"
+    else:
+        mode = "docker"
+
     return {
         "status": "healthy",
         "service": "green-agent",
-        "version": "0.1.0",
-        "fake_mode": os.environ.get("USE_FAKE_OSWORLD", "1") == "1",
+        "version": "0.2.0",  # Bumped for native mode support
+        "osworld_mode": mode,
+        "osworld_server_url": osworld_server_url if mode == "native" else None,
         "max_steps": int(os.environ.get("OSWORLD_MAX_STEPS", "15")),
     }
 
