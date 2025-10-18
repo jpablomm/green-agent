@@ -10,16 +10,16 @@ echo ""
 
 # Test 1: Screenshot
 echo "1. Testing screenshot endpoint..."
-if curl -s -f $SERVER/screenshot -o /tmp/test_screenshot.png 2>/dev/null; then
-    if [ -s /tmp/test_screenshot.png ]; then
-        echo "   ✓ Screenshot: OK"
-        ls -lh /tmp/test_screenshot.png
-    else
-        echo "   ✗ Screenshot: Empty file"
-    fi
-else
-    echo "   ✗ Screenshot: FAILED"
+HTTP_CODE=$(curl -s -w "%{http_code}" $SERVER/screenshot -o /tmp/test_screenshot.png)
+if [ "$HTTP_CODE" = "200" ] && [ -s /tmp/test_screenshot.png ]; then
+    echo "   ✓ Screenshot: OK (HTTP $HTTP_CODE)"
+    ls -lh /tmp/test_screenshot.png
+elif [ "$HTTP_CODE" != "200" ]; then
+    echo "   ✗ Screenshot: HTTP $HTTP_CODE"
     echo "   Server may not be running. Check: sudo systemctl status osworld-server"
+    exit 1
+else
+    echo "   ✗ Screenshot: Empty file"
     exit 1
 fi
 echo ""
