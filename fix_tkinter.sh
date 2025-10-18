@@ -17,12 +17,14 @@ log "Stopping osworld-server..."
 sudo systemctl stop osworld-server || true
 
 # Install tkinter and other missing system packages
-log "Installing tkinter and development packages..."
+log "Installing tkinter, pyatspi, and development packages..."
 sudo apt-get update
 sudo apt-get install -y \
     python3-tk \
     python3-dev \
-    tk-dev
+    tk-dev \
+    python3-pyatspi \
+    at-spi2-core
 
 log "✓ System packages installed"
 
