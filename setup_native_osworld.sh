@@ -117,6 +117,10 @@ install_applications() {
     log "Installing GIMP..."
     apt-get install -y -qq gimp > /dev/null
 
+    # Screenshot tool (required by pyautogui)
+    log "Installing gnome-screenshot..."
+    apt-get install -y -qq gnome-screenshot > /dev/null
+
     # Text editors
     log "Installing text editors..."
     apt-get install -y -qq \
@@ -198,6 +202,10 @@ setup_osworld() {
         log "Installing OSWorld Python dependencies..."
         python3 -m pip install -q -r "$OSWORLD_DIR/desktop_env/requirements.txt"
     fi
+
+    # Upgrade Pillow to version 9.2.0+ (required for pyautogui screenshots)
+    log "Upgrading Pillow..."
+    python3 -m pip install -q --upgrade "Pillow>=9.2.0"
 
     # Create .Xauthority file for X11
     touch "$OSWORLD_DIR/.Xauthority"
