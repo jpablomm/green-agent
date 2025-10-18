@@ -199,6 +199,10 @@ setup_osworld() {
         python3 -m pip install -q -r "$OSWORLD_DIR/desktop_env/requirements.txt"
     fi
 
+    # Create .Xauthority file for X11
+    touch "$OSWORLD_DIR/.Xauthority"
+    chmod 600 "$OSWORLD_DIR/.Xauthority"
+
     # Set permissions
     chown -R "$OSWORLD_USER:$OSWORLD_USER" "$OSWORLD_DIR"
 
@@ -261,7 +265,8 @@ Type=simple
 User=osworld
 WorkingDirectory=/opt/osworld
 Environment=DISPLAY=:99
-Environment=PYTHONPATH=/opt/osworld
+Environment=PYTHONPATH=/opt/osworld:/opt/osworld/desktop_env/server
+Environment=XAUTHORITY=/opt/osworld/.Xauthority
 ExecStart=/usr/bin/python3 -m desktop_env.server.main --port 5000
 Restart=always
 RestartSec=10
